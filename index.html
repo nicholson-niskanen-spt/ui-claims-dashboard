@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>U.S. Unemployment Insurance Claims</title>
+<style>
+  :root{
+    --bg:#ffffff; --panel:#f7f8fa; --ink:#1a2230; --muted:#5b6675;
+    --line:#d9dee6; --accent:#1f6feb; --accent2:#0b7a6b;
+    --recession:#e7ecf3; --provisional:#f0a202; --grid:#eef1f5;
+    --pos:#c0392b; --neg:#0b7a6b;
+    /* Sequential single-hue ramp (colorblind-safe blues) for the rate map */
+    --r0:#eef3fb; --r1:#c9dcf5; --r2:#94bde8; --r3:#5a97d6; --r4:#2f6fbf; --r5:#16457f;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0f141b; --panel:#161d27; --ink:#e6ebf2; --muted:#9aa7b8;
+      --line:#2a3442; --accent:#4d9bff; --accent2:#3fbfa8;
+      --recession:#1c2530; --grid:#1a222d;
+      --r0:#16202e; --r1:#1e3350; --r2:#2b5183; --r3:#3f77bf; --r4:#5a97d6; --r5:#9cc2ee;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px 20px 60px}
+  header h1{font-size:24px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 18px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:18px;margin-bottom:20px}
+  .controls{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:flex-end;margin-bottom:6px}
+  .ctl label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.04em;
+    color:var(--muted);margin-bottom:4px}
+  select,input[type=date]{font:inherit;padding:6px 8px;border:1px solid var(--line);
+    border-radius:8px;background:var(--bg);color:var(--ink)}
+  .presets{display:flex;gap:6px;flex-wrap:wrap}
+  .presets button{font:inherit;padding:6px 11px;border:1px solid var(--line);border-radius:8px;
+    background:var(--bg);color:var(--ink);cursor:pointer}
+  .presets button.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .toggle{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+  .readout{display:flex;flex-wrap:wrap;gap:26px;margin:2px 0 14px}
+  .metric .big{font-size:30px;font-weight:650;line-height:1.1}
+  .metric .lbl{font-size:12px;color:var(--muted)}
+  .chg{font-weight:650}
+  .chg.up{color:var(--pos)} .chg.down{color:var(--neg)}
+  .caveat{font-size:12px;color:var(--muted);margin-top:8px}
+  .prov-dot{display:inline-block;width:9px;height:9px;border-radius:2px;
+    background:var(--provisional);margin-right:5px;vertical-align:middle}
+  svg{max-width:100%;display:block}
+  .src{font-size:11px;color:var(--muted);margin-top:8px}
+  .tip{position:fixed;pointer-events:none;background:var(--ink);color:var(--bg);
+    padding:6px 9px;border-radius:6px;font-size:12px;opacity:0;transition:opacity .08s;
+    white-space:nowrap;z-index:10;transform:translate(-50%,-130%)}
+  .maprow{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+  .mapwrap{flex:1;min-width:320px}
+  .legend{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted);min-width:150px}
+  .legend .row{display:flex;align-items:center;gap:8px}
+  .sw{width:16px;height:16px;border-radius:3px;border:1px solid rgba(0,0,0,.08)}
+  .tile text{font-size:9px;font-weight:600;fill:var(--ink)}
+  .tile rect{stroke:var(--bg);stroke-width:1.5;cursor:default}
+  h2{font-size:17px;margin:0 0 2px}
+  .note{font-size:12px;color:var(--muted);margin:0 0 14px}
+  footer{font-size:12px;color:var(--muted);line-height:1.6;margin-top:8px}
+  footer b{color:var(--ink)}
+  .err{color:var(--pos);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>U.S. Unemployment Insurance Claims</h1>
+    <p class="sub" id="sub">Loading…</p>
+  </header>
+
+  <div class="panel">
+    <div class="controls">
+      <div class="ctl">
+        <label for="series">Series</label>
+        <select id="series">
+          <option value="ICSA">Initial claims — seasonally adjusted</option>
+          <option value="ICNSA">Initial claims — not seasonally adjusted</option>
+          <option value="CCSA">Continued claims — seasonally adjusted</option>
+          <option value="CCNSA">Continued claims — not seasonally adjusted</option>
+        </select>
+      </div>
+      <div class="ctl">
+        <label>Time frame</label>
+        <div class="presets" id="presets">
+          <button data-y="1">1Y</button>
+          <button data-y="5">5Y</button>
+          <button data-y="10">10Y</button>
+          <button data-y="0" class="active">Max</button>
+        </div>
+      </div>
+      <div class="ctl">
+        <label for="from">From</label>
+        <input type="date" id="from">
+      </div>
+      <div class="ctl">
+        <label for="to">To</label>
+        <input type="date" id="to">
+      </div>
+      <div class="ctl">
+        <label>Scale</label>
+        <span class="toggle"><input type="checkbox" id="logscale"><label for="logscale" style="margin:0;text-transform:none;letter-spacing:0">Log (tames 2020 spike)</label></span>
+      </div>
+    </div>
+
+    <div class="readout" id="readout"></div>
+    <div id="chart"></div>
+    <div class="caveat" id="chartCaveat"></div>
+    <div class="src" id="chartSrc"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Where claims are highest right now</h2>
+    <p class="note" id="mapNote"></p>
+    <div class="maprow">
+      <div class="mapwrap"><div id="map"></div></div>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="src" id="mapSrc"></div>
+  </div>
+
+  <footer id="footer"></footer>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const tip = $("#tip");
+let DATA = null, STATE = {series:"ICSA", years:0, from:null, to:null, log:false};
+
+const fmt = n => n>=1e6 ? (n/1e6).toFixed(2)+"M" : n>=1e3 ? (n/1e3).toFixed(0)+"k" : (""+Math.round(n));
+const fmtFull = n => Math.round(n).toLocaleString("en-US");
+const parseD = s => new Date(s+"T00:00:00");
+const iso = d => d.toISOString().slice(0,10);
+const pct = x => (x>=0?"+":"")+x.toFixed(1)+"%";
+
+// ---- US tile-grid layout: [row, col], west->east, north->south. Cartogram,
+// equal-area so a rate isn't visually dominated by large states. ----
+const GRID = {
+  WA:[0,0], MT:[0,2], ND:[0,3], MN:[0,4], WI:[0,5], MI:[0,6], ME:[0,10],
+  OR:[1,0], ID:[1,1], WY:[1,2], SD:[1,3], IA:[1,4], IL:[1,5], IN:[1,6], OH:[1,7], NY:[1,8], VT:[1,9], NH:[1,10],
+  CA:[2,0], NV:[2,1], UT:[2,2], NE:[2,3], MO:[2,4], KY:[2,5], WV:[2,6], PA:[2,7], NJ:[2,8], CT:[2,9], MA:[2,10], RI:[2,11],
+  AZ:[3,1], CO:[3,2], KS:[3,3], AR:[3,4], TN:[3,5], VA:[3,6], MD:[3,7], DE:[3,8],
+  NM:[4,2], OK:[4,3], LA:[4,4], MS:[4,5], NC:[4,6], DC:[4,7],
+  TX:[5,3], AL:[5,5], SC:[5,6],
+  AK:[6,0], GA:[6,6], FL:[6,7],
+  HI:[7,0]
+};
+
+fetch("data.json").then(r=>r.json()).then(d=>{ DATA=d; init(); })
+  .catch(e=>{ $("#sub").innerHTML='<span class="err">Could not load data.json — run fetch_data.py first.</span>'; });
+
+function init(){
+  const prov = DATA.provisional_weeks || [];
+  $("#sub").innerHTML = `Data through <b>${DATA.national.ICSA.at(-1)[0]}</b> · pulled ${DATA.fetched_at} · `
+    + `<span class="prov-dot"></span>last ${DATA.provisional_window} weeks provisional (subject to revision)`;
+  // series select
+  $("#series").addEventListener("change", e=>{STATE.series=e.target.value; render();});
+  $("#logscale").addEventListener("change", e=>{STATE.log=e.target.checked; render();});
+  $("#presets").addEventListener("click", e=>{
+    if(e.target.tagName!=="BUTTON") return;
+    STATE.years = +e.target.dataset.y; STATE.from=null; STATE.to=null;
+    [...$("#presets").children].forEach(b=>b.classList.toggle("active", b===e.target));
+    syncDateInputs(); render();
+  });
+  $("#from").addEventListener("change", e=>{STATE.from=e.target.value; clearPreset(); render();});
+  $("#to").addEventListener("change", e=>{STATE.to=e.target.value; clearPreset(); render();});
+  buildMap(); buildFooter(); syncDateInputs(); render();
+  window.addEventListener("resize", render);
+}
+function clearPreset(){ STATE.years=-1; [...$("#presets").children].forEach(b=>b.classList.remove("active")); }
+function syncDateInputs(){
+  const obs = DATA.national[STATE.series];
+  const lastD = obs.at(-1)[0], firstD = obs[0][0];
+  let start = firstD;
+  if(STATE.years>0){ const d=parseD(lastD); d.setFullYear(d.getFullYear()-STATE.years); start=iso(d); }
+  $("#from").value = STATE.from || start;
+  $("#to").value = STATE.to || lastD;
+  $("#from").min=firstD; $("#from").max=lastD; $("#to").min=firstD; $("#to").max=lastD;
+}
+
+function selectedRange(){
+  const obs = DATA.national[STATE.series].filter(p=>p[1]!=null);
+  const lastD = obs.at(-1)[0];
+  let from = STATE.from, to = STATE.to || lastD;
+  if(!from){
+    if(STATE.years>0){ const d=parseD(lastD); d.setFullYear(d.getFullYear()-STATE.years); from=iso(d); }
+    else from = obs[0][0];
+  }
+  return obs.filter(p=>p[0]>=from && p[0]<=to);
+}
+
+function render(){
+  syncDateInputs();
+  const pts = selectedRange();
+  drawReadout(pts);
+  drawChart(pts);
+  const lbl = $("#series").selectedOptions[0].text;
+  $("#chartSrc").innerHTML = `Source: ${DATA.source}. Series: ${STATE.series} (${lbl}).`;
+  const sa = STATE.series.endsWith("NSA") ? "Not seasonally adjusted." : "Seasonally adjusted.";
+  $("#chartCaveat").innerHTML = `${sa} Comparisons spanning Mar 2020–Jun 2021 cross a `
+    + `pandemic seasonal-adjustment methodology break — interpret trend lines across that window with care.`;
+}
+
+function drawReadout(pts){
+  const el = $("#readout"); el.innerHTML="";
+  if(pts.length<2){ el.textContent="Not enough data in range."; return; }
+  const last = pts.at(-1), latestVal = last[1], latestDate = last[0];
+  const prov = (DATA.provisional_weeks||[]).includes(latestDate);
+  // 4-week-ago and ~52-week-ago comparisons (within selected series, full history)
+  const full = DATA.national[STATE.series].filter(p=>p[1]!=null);
+  const idx = full.length-1;
+  const wk4 = full[idx-4], wk52 = full[idx-52];
+  const c4 = wk4 ? (latestVal-wk4[1])/wk4[1]*100 : null;
+  const c52 = wk52 ? (latestVal-wk52[1])/wk52[1]*100 : null;
+  const metric = (big,lbl)=>`<div class="metric"><div class="big">${big}</div><div class="lbl">${lbl}</div></div>`;
+  const chg = v => v==null?"n/a":`<span class="chg ${v>=0?'up':'down'}">${pct(v)}</span>`;
+  el.innerHTML =
+    metric(fmtFull(latestVal), `Latest — week ending ${latestDate}${prov?' (provisional)':''}`) +
+    metric(chg(c4), "vs. 4 weeks earlier") +
+    metric(chg(c52), "vs. same week last year");
+}
+
+// ---------- line chart ----------
+function drawChart(pts){
+  const host = $("#chart"); host.innerHTML="";
+  if(pts.length<2) return;
+  const W = host.clientWidth || 900, H = 340;
+  const m = {t:14,r:16,b:28,l:56};
+  const iw = W-m.l-m.r, ih = H-m.t-m.b;
+  const xs = pts.map(p=>parseD(p[0]).getTime());
+  const x0=Math.min(...xs), x1=Math.max(...xs);
+  const vals = pts.map(p=>p[1]);
+  let y0 = Math.min(...vals), y1 = Math.max(...vals);
+  const log = STATE.log && y0>0;
+  const X = t => m.l + (t-x0)/(x1-x0||1)*iw;
+  const yScale = v => log ? (Math.log10(v)-Math.log10(y0))/(Math.log10(y1)-Math.log10(y0)||1)
+                          : (v-y0)/(y1-y0||1);
+  if(!log){ const pad=(y1-y0)*0.08||1; y0=Math.max(0,y0-pad); y1=y1+pad; }
+  const Y = v => m.t + ih - yScale(v)*ih;
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Claims time series">`;
+  // recession shading
+  for(const [rs,re] of (DATA.recessions||[])){
+    const a=parseD(rs).getTime(), b=parseD(re).getTime();
+    if(b<x0||a>x1) continue;
+    const xa=X(Math.max(a,x0)), xb=X(Math.min(b,x1));
+    svg += `<rect x="${xa}" y="${m.t}" width="${Math.max(0,xb-xa)}" height="${ih}" fill="var(--recession)"/>`;
+  }
+  // y gridlines + labels
+  const ticks = niceTicks(y0,y1,log,5);
+  for(const tk of ticks){
+    const yy=Y(tk);
+    svg += `<line x1="${m.l}" x2="${W-m.r}" y1="${yy}" y2="${yy}" stroke="var(--grid)"/>`;
+    svg += `<text x="${m.l-8}" y="${yy+4}" text-anchor="end" fill="var(--muted)" font-size="11">${fmt(tk)}</text>`;
+  }
+  // x year labels
+  for(const [tx,label] of yearTicks(x0,x1)){
+    const xx=X(tx);
+    svg += `<text x="${xx}" y="${H-8}" text-anchor="middle" fill="var(--muted)" font-size="11">${label}</text>`;
+  }
+  // split final (solid) vs provisional (dashed) segments
+  const prov = new Set(DATA.provisional_weeks||[]);
+  const firstProvIdx = pts.findIndex(p=>prov.has(p[0]));
+  const solid = firstProvIdx<0 ? pts : pts.slice(0, firstProvIdx+1);
+  const dashed = firstProvIdx<0 ? [] : pts.slice(firstProvIdx);
+  const path = arr => arr.map((p,i)=>(i?"L":"M")+X(parseD(p[0]).getTime()).toFixed(1)+" "+Y(p[1]).toFixed(1)).join(" ");
+  svg += `<path d="${path(solid)}" fill="none" stroke="var(--accent)" stroke-width="1.8"/>`;
+  if(dashed.length>1)
+    svg += `<path d="${path(dashed)}" fill="none" stroke="var(--provisional)" stroke-width="2" stroke-dasharray="3 3"/>`;
+  // latest marker
+  const lp=pts.at(-1);
+  svg += `<circle cx="${X(parseD(lp[0]).getTime())}" cy="${Y(lp[1])}" r="3.5" fill="var(--provisional)"/>`;
+  // hover layer
+  svg += `<rect id="hit" x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent"/>`;
+  svg += `</svg>`;
+  host.innerHTML = svg;
+
+  const hit = host.querySelector("#hit");
+  const svgEl = host.querySelector("svg");
+  hit.addEventListener("mousemove", ev=>{
+    const r=svgEl.getBoundingClientRect(); const sx=(ev.clientX-r.left)/r.width*W;
+    const t = x0 + (sx-m.l)/iw*(x1-x0);
+    let best=pts[0], bd=1e18;
+    for(const p of pts){ const d=Math.abs(parseD(p[0]).getTime()-t); if(d<bd){bd=d;best=p;} }
+    tip.style.opacity=1; tip.style.left=ev.clientX+"px"; tip.style.top=ev.clientY+"px";
+    tip.innerHTML=`<b>${best[0]}</b><br>${fmtFull(best[1])}${prov.has(best[0])?' · provisional':''}`;
+  });
+  hit.addEventListener("mouseleave", ()=>tip.style.opacity=0);
+}
+
+function niceTicks(a,b,log,n){
+  if(log){
+    const out=[]; let e=Math.floor(Math.log10(a));
+    for(; Math.pow(10,e)<=b*1.001; e++){ for(const mlt of [1,2,3,5,7]){ const v=mlt*Math.pow(10,e); if(v>=a&&v<=b) out.push(v);} }
+    // Narrow ranges (within one decade) can yield too few round ticks — add endpoints.
+    if(out.length<3){ const s=new Set(out); s.add(a); s.add(b); return [...s].sort((x,y)=>x-y); }
+    return out;
+  }
+  const step = niceStep((b-a)/n); const out=[]; let v=Math.ceil(a/step)*step;
+  for(; v<=b; v+=step) out.push(v); return out;
+}
+function niceStep(x){ const p=Math.pow(10,Math.floor(Math.log10(x))); const f=x/p;
+  return (f<1.5?1:f<3?2:f<7?5:10)*p; }
+function yearTicks(x0,x1){
+  const y0=new Date(x0).getFullYear(), y1=new Date(x1).getFullYear();
+  const span=y1-y0; const step= span>40?10:span>16?5:span>6?2:1;
+  const out=[]; for(let y=Math.ceil(y0/step)*step; y<=y1; y+=step) out.push([new Date(y,0,1).getTime(), y]);
+  return out;
+}
+
+// ---------- state tile map ----------
+function buildMap(){
+  const states = DATA.states;
+  const vals = Object.values(states).map(s=>s.rate);
+  const mn=Math.min(...vals), mx=Math.max(...vals);
+  // 6 fixed bins across the observed range
+  const bins=6; const edges=[]; for(let i=1;i<bins;i++) edges.push(mn+(mx-mn)*i/bins);
+  const colorVar=i=>`var(--r${i})`;
+  const binOf=v=>{ let i=0; while(i<edges.length && v>edges[i]) i++; return i; };
+  const cell=42, gap=4;
+  let maxR=0,maxC=0; for(const k in GRID){ maxR=Math.max(maxR,GRID[k][0]); maxC=Math.max(maxC,GRID[k][1]); }
+  const W=(maxC+1)*(cell+gap), H=(maxR+1)*(cell+gap);
+  let svg=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Insured unemployment rate by state">`;
+  for(const st in GRID){
+    const [r,c]=GRID[st]; const x=c*(cell+gap), y=r*(cell+gap);
+    const s=states[st]; const bi=s?binOf(s.rate):0;
+    const fill = s?colorVar(bi):"var(--panel)";
+    const rate = s? s.rate.toFixed(1)+"%" : "n/a";
+    svg+=`<g class="tile" data-st="${st}" data-rate="${rate}" data-date="${s?s.date:''}">`
+      +`<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="5" fill="${fill}"/>`
+      +`<text x="${x+cell/2}" y="${y+cell/2-2}" text-anchor="middle">${st}</text>`
+      +`<text x="${x+cell/2}" y="${y+cell/2+10}" text-anchor="middle" font-size="8" fill="var(--muted)">${rate}</text>`
+      +`</g>`;
+  }
+  svg+=`</svg>`;
+  $("#map").innerHTML=svg;
+
+  // legend
+  let leg=""; const lo=(i)=> i===0?`< ${edges[0].toFixed(1)}%`
+    : i===bins-1?`≥ ${edges[edges.length-1].toFixed(1)}%`
+    : `${edges[i-1].toFixed(1)}–${edges[i].toFixed(1)}%`;
+  for(let i=0;i<bins;i++) leg+=`<div class="row"><span class="sw" style="background:var(--r${i})"></span>${lo(i)}</div>`;
+  $("#legend").innerHTML = `<div style="color:var(--ink);font-weight:600;margin-bottom:2px">Insured unemp. rate</div>`+leg;
+
+  const anyDate = Object.values(states)[0].date;
+  $("#mapNote").textContent = `Insured unemployment rate by state — continued claims as a share of covered employment, `
+    + `not seasonally adjusted, week ending ${anyDate}. Tiles are equal-area (a cartogram), so the color reflects the rate, not state size.`;
+  $("#mapSrc").innerHTML = `Source: ${DATA.source}. Series: {STATE}INSUREDUR.`;
+
+  $("#map").addEventListener("mousemove", e=>{
+    const g=e.target.closest(".tile"); if(!g){tip.style.opacity=0;return;}
+    tip.style.opacity=1; tip.style.left=e.clientX+"px"; tip.style.top=e.clientY+"px";
+    tip.innerHTML=`<b>${g.dataset.st}</b> · ${g.dataset.rate}<br>week ending ${g.dataset.date}`;
+  });
+  $("#map").addEventListener("mouseleave", ()=>tip.style.opacity=0);
+}
+
+function buildFooter(){
+  $("#footer").innerHTML =
+    `<b>About this dashboard.</b> Weekly U.S. unemployment-insurance claims from FRED (Federal Reserve Bank of St. Louis), `
+    + `sourced from the U.S. Employment &amp; Training Administration. History runs from January 1967.<br><br>`
+    + `<b>Initial claims</b> count new filings for benefits; <b>continued claims</b> (a.k.a. insured unemployment) count people still receiving benefits. `
+    + `<b>Seasonally adjusted (SA)</b> series remove predictable calendar patterns; <b>not seasonally adjusted (NSA)</b> series show raw counts. `
+    + `SA national series and the NSA state rate are never plotted on the same axis.<br><br>`
+    + `<b>Reading the trend honestly.</b> The last ${DATA.provisional_window} weeks are provisional and routinely revised — shown dashed/amber. `
+    + `The 2020 pandemic spike distorts linear axes (use the log toggle) and the SA methodology changed for Mar 2020–Jun 2021, breaking clean comparisons across that window.<br><br>`
+    + `<span class="src">Data pulled ${DATA.fetched_at}. Release schedule: Thursdays 8:30am ET (shifts on federal holidays), per DOL.</span>`;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,44 @@
+name: Weekly UI claims update
+
+on:
+  schedule:
+    # DOL releases weekly claims Thursday 8:30am ET. Cron is UTC and has no DST,
+    # so 8:30am ET = 12:30 UTC (EDT) or 13:30 UTC (EST). Run a little after both,
+    # a later retry, and Friday to catch federal-holiday-shifted releases.
+    - cron: "30 13 * * 4"   # Thu ~08:30–09:30 ET
+    - cron: "0 18 * * 4"    # Thu afternoon retry
+    - cron: "30 14 * * 5"   # Fri, for holiday-shifted releases
+  workflow_dispatch: {}      # allow manual runs
+
+permissions:
+  contents: write            # needed to commit refreshed data back
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install --quiet certifi
+
+      - name: Fetch latest FRED data (fails the job if QA fails)
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python3 fetch_data.py
+
+      - name: Commit if data changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data.json snapshots/
+          if git diff --cached --quiet; then
+            echo "No data changes — nothing to commit."
+          else
+            git commit -m "Weekly data update ($(date -u +%Y-%m-%d))"
+            git push
+          fi
